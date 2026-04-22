@@ -61,10 +61,13 @@ async function convertInputToPdf(file: File): Promise<Uint8Array> {
 }
 
 export async function buildPagePipeline(file: File): Promise<PagePipelineResult> {
-  const sourcePdfBytes = await convertInputToPdf(file);
+  const rawPdfBytes = await convertInputToPdf(file);
+  // 一份用于后续导出持久保存，一份给 pdf.js 预览，避免 worker 转移导致 buffer detached。
+  const sourcePdfBytes = Uint8Array.from(rawPdfBytes);
+  const previewPdfBytes = Uint8Array.from(rawPdfBytes);
   let pdf;
   try {
-    const loadingTask = getDocument({ data: sourcePdfBytes });
+    const loadingTask = getDocument({ data: previewPdfBytes });
     pdf = await loadingTask.promise;
   } catch (error) {
     const msg = error instanceof Error ? error.message : "PDF 解析失败";
