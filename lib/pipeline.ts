@@ -1,0 +1,70 @@
+"use client";
+
+import { GlobalWorkerOptions, getDocument } from "pdfjs-dist/legacy/build/pdf.mjs";
+import pdfjsPkg from "pdfjs-dist/package.json";
+import type { PagePipelineResult } from "./types";
+
+GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjsPkg.version}/build/pdf.worker.min.mjs`;
+
+function isPdf(file: File): boolean {
+  return file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
+}
+
+function isPpt(file: File): boolean {
+  return (
+    file.name.toLowerCase().endsWith(".ppt") ||
+    file.name.toLowerCase().endsWith(".pptx") ||
+    file.type.includes("presentation")
+  );
+}
+
+async function convertInputToPdf(file: File): Promise<Uint8Array> {
+  if (isPdf(file)) {
+    return new Uint8Array(await file.arrayBuffer());
+  }
+
+  if (!isPpt(file)) {
+    throw new Error("仅支持 PDF / PPT / PPTX 文件");
+  }
+
+  const formData = new FormData();
+  formData.append("file", file);
+  const response = await fetch("/api/convert", { method: "POST", body: formData });
+  if (!response.ok) {
+    const msg = await response.text();
+    throw new Error(msg || "PPT/PPTX 转换失败");
+  }
+  return new Uint8Array(await response.arrayBuffer());
+}
+
+export async function buildPagePipeline(file: File): Promise<PagePipelineResult> {
+  const sourcePdfBytes = await convertInputToPdf(file);
+  const loadingTask = getDocument({ data: sourcePdfBytes });
+  const pdf = await loadingTask.promise;
+
+  const pages = await Promise.all(
+    Array.from({ length: pdf.numPages }, async (_, i) => {
+      const page = await pdf.getPage(i + 1);
+      const viewport = page.getViewport({ scale: 1.2 });
+      const canvas = document.createElement("canvas");
+      const context = canvas.getContext("2d");
+      if (!context) {
+        throw new Error("无法创建预览画布");
+      }
+      canvas.width = viewport.width;
+      canvas.height = viewport.height;
+      await page.render({ canvasContext: context, viewport }).promise;
+      return {
+        id: `${file.name}-${i + 1}`,
+        image: canvas.toDataURL("image/png"),
+        pdfPageIndex: i
+      };
+    })
+  );
+
+  return {
+    sourceName: file.name,
+    sourcePdfBytes,
+    pages
+  };
+}
