@@ -113,6 +113,15 @@ function roundRatio(width: number, height: number): string {
   return (width / height).toFixed(4);
 }
 
+interface VerticalCaptureBoundary {
+  slideHeight: number;
+  contentBBoxBottom: number;
+  finalCaptureHeight: number;
+  topBleed: number;
+  bottomBleed: number;
+  contentExceedsFrame: boolean;
+}
+
 function detectBlankCanvas(canvas: HTMLCanvasElement): boolean {
   const context = canvas.getContext("2d", { willReadFrequently: true });
   if (!context || canvas.width <= 0 || canvas.height <= 0) return true;
@@ -188,6 +197,42 @@ function computeCanvasHash(canvas: HTMLCanvasElement): string {
   return (acc >>> 0).toString(16);
 }
 
+function computeContentBBoxBottom(slideElement: HTMLElement): number {
+  const rootRect = slideElement.getBoundingClientRect();
+  let maxBottom = 0;
+  const all = [slideElement, ...Array.from(slideElement.querySelectorAll("*"))].filter(
+    (el): el is HTMLElement => el instanceof HTMLElement
+  );
+  for (const el of all) {
+    const rect = el.getBoundingClientRect();
+    if (rect.width <= 0 && rect.height <= 0) continue;
+    const relBottom = rect.bottom - rootRect.top;
+    if (Number.isFinite(relBottom)) {
+      maxBottom = Math.max(maxBottom, relBottom);
+    }
+  }
+  return Math.ceil(Math.max(maxBottom, slideElement.scrollHeight, slideElement.clientHeight));
+}
+
+function computeVerticalCaptureBoundary(slideElement: HTMLElement, slideHeight: number): VerticalCaptureBoundary {
+  const contentBBoxBottom = computeContentBBoxBottom(slideElement);
+  const baseHeight = Math.max(slideHeight, contentBBoxBottom);
+  const topBleed = 8;
+  const nearBottomThreshold = Math.max(16, Math.ceil(slideHeight * 0.02));
+  const distToBottom = Math.max(0, slideHeight - contentBBoxBottom);
+  const extraBottomPadding = distToBottom < nearBottomThreshold ? 16 : 0;
+  const bottomBleed = Math.max(24, Math.ceil(baseHeight * 0.04)) + extraBottomPadding;
+  const finalCaptureHeight = Math.ceil(baseHeight + topBleed + bottomBleed);
+  return {
+    slideHeight: Math.ceil(slideHeight),
+    contentBBoxBottom: Math.ceil(contentBBoxBottom),
+    finalCaptureHeight,
+    topBleed,
+    bottomBleed,
+    contentExceedsFrame: contentBBoxBottom > slideHeight
+  };
+}
+
 async function captureSlideSnapshot(
   html2canvas: (element: HTMLElement, options: Record<string, unknown>) => Promise<HTMLCanvasElement>,
   slideNode: HTMLElement,
@@ -206,7 +251,7 @@ async function captureSlideSnapshot(
     windowWidth: targetWidth,
     windowHeight: targetHeight,
     x: 0,
-    y: 0,
+    y: -Math.ceil((targetHeight - slideNode.clientHeight) * 0.5),
     scrollX: 0,
     scrollY: 0
   });
@@ -220,24 +265,27 @@ async function renderSlideToCanonicalCanvas(
   toCanvas: (node: HTMLElement, options: Record<string, unknown>) => Promise<HTMLCanvasElement>,
   slideElement: HTMLElement,
   slideSize: { width: number; height: number },
+  boundary: VerticalCaptureBoundary,
   renderScale: number
 ): Promise<{ canvas: HTMLCanvasElement; renderer: "primary" | "fallback" }> {
-  // 主路径：页面尺寸驱动（固定 canonical canvas），不依赖节点可视边界推断。
+  const targetWidth = Math.ceil(slideSize.width);
+  const targetHeight = Math.ceil(boundary.finalCaptureHeight);
+  // 主路径：页面尺寸驱动（固定 canonical canvas），纵向边界使用完整内容包围盒 + bleed。
   let canvas = await toCanvas(slideElement, {
     backgroundColor: "#ffffff",
     pixelRatio: 1,
-    width: slideSize.width,
-    height: slideSize.height,
-    canvasWidth: slideSize.width * renderScale,
-    canvasHeight: slideSize.height * renderScale,
+    width: targetWidth,
+    height: targetHeight,
+    canvasWidth: targetWidth * renderScale,
+    canvasHeight: targetHeight * renderScale,
     style: {
-      width: `${slideSize.width}px`,
-      height: `${slideSize.height}px`,
+      width: `${targetWidth}px`,
+      height: `${targetHeight}px`,
       transform: "none"
     },
     cacheBust: true
   });
-  const expectedRatio = slideSize.width / slideSize.height;
+  const expectedRatio = targetWidth / targetHeight;
   const ratioOk = ratioDiff(canvas.width / canvas.height, expectedRatio) <= 0.01;
   if (ratioOk && !detectBlankCanvas(canvas)) return { canvas, renderer: "primary" };
 
@@ -245,8 +293,8 @@ async function renderSlideToCanonicalCanvas(
   canvas = await captureSlideSnapshot(
     (await import("html2canvas")).default,
     slideElement,
-    slideSize.width,
-    slideSize.height,
+    targetWidth,
+    targetHeight,
     renderScale
   );
   return { canvas, renderer: "fallback" };
@@ -317,10 +365,33 @@ async function buildPptSnapshotPages(
       diagnostics && (diagnostics.slidesRenderedCount += 1);
       if (i === 0) firstSlideElementByRef.current = slideNode;
 
-      slideNode.style.width = `${slideSize.width}px`;
-      slideNode.style.height = `${slideSize.height}px`;
-      slideNode.style.overflow = "hidden";
-      const { canvas: rawCanvas, renderer } = await renderSlideToCanonicalCanvas(toCanvas, slideNode, slideSize, renderScale);
+      const boundary = computeVerticalCaptureBoundary(slideNode, slideSize.height);
+      if (debugMode) {
+        debugLog(debugMode, `slide ${i + 1} vertical boundary`, boundary);
+      }
+      diagnostics && (diagnostics.bottomClipChecks ??= []);
+      diagnostics?.bottomClipChecks?.push({
+        slideIndex: i + 1,
+        slideHeight: boundary.slideHeight,
+        contentBBoxBottom: boundary.contentBBoxBottom,
+        finalCaptureHeight: boundary.finalCaptureHeight,
+        bleedAdded: boundary.topBleed + boundary.bottomBleed,
+        contentExceedsFrame: boundary.contentExceedsFrame
+      });
+
+      slideNode.style.width = `${Math.ceil(slideSize.width)}px`;
+      slideNode.style.height = `${Math.ceil(boundary.finalCaptureHeight)}px`;
+      slideNode.style.paddingTop = `${boundary.topBleed}px`;
+      slideNode.style.paddingBottom = `${boundary.bottomBleed}px`;
+      slideNode.style.boxSizing = "border-box";
+      slideNode.style.overflow = "visible";
+      const { canvas: rawCanvas, renderer } = await renderSlideToCanonicalCanvas(
+        toCanvas,
+        slideNode,
+        slideSize,
+        boundary,
+        renderScale
+      );
       if (renderer === "fallback") {
         fallbackUsed = true;
         debugLog(debugMode, `fallback renderer used on slide ${i + 1}`);
@@ -382,6 +453,7 @@ async function buildPptSnapshotPages(
           toCanvas,
           firstSlideElementByRef.current,
           slideSize,
+          computeVerticalCaptureBoundary(firstSlideElementByRef.current, slideSize.height),
           renderScale
         );
         const candidate = normalizeCanvasToCanonical(c.canvas, canonicalCanvasSize.width, canonicalCanvasSize.height);

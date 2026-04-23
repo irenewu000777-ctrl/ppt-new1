@@ -38,6 +38,14 @@ export interface PipelineDiagnostics {
   stabilityRuns?: number;
   stabilityMismatches?: number;
   stabilityHashes?: string[];
+  bottomClipChecks?: Array<{
+    slideIndex: number;
+    slideHeight: number;
+    contentBBoxBottom: number;
+    finalCaptureHeight: number;
+    bleedAdded: number;
+    contentExceedsFrame: boolean;
+  }>;
   exportImageCount?: number;
   rendererUsed?: "primary" | "fallback";
   failureReasons: string[];

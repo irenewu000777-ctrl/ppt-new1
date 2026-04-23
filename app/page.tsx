@@ -148,6 +148,16 @@ export default function HomePage() {
             <div>Aspect Ratios: {(pipeline.diagnostics.aspectRatios ?? []).join(", ") || "-"}</div>
             <div>Stability Runs: {pipeline.diagnostics.stabilityRuns ?? 0}</div>
             <div>Stability Mismatches: {pipeline.diagnostics.stabilityMismatches ?? 0}</div>
+            <div>
+              Bottom Capture:{" "}
+              {(pipeline.diagnostics.bottomClipChecks ?? [])
+                .slice(0, 3)
+                .map(
+                  (item) =>
+                    `#${item.slideIndex} h=${item.slideHeight} b=${item.contentBBoxBottom} cap=${item.finalCaptureHeight} bleed=${item.bleedAdded} exceed=${item.contentExceedsFrame ? "Y" : "N"}`
+                )
+                .join(" | ") || "-"}
+            </div>
           </div>
         </section>
       ) : null}
