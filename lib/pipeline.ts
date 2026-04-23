@@ -307,14 +307,29 @@ async function waitForTextLayoutReady(slideElement: HTMLElement): Promise<void> 
   }
   // 强制 reflow，确保文本容器高度在截图前稳定。
   void slideElement.offsetHeight;
+  void slideElement.getBoundingClientRect();
   Array.from(slideElement.querySelectorAll("*")).forEach((el) => {
     if (el instanceof HTMLElement) {
       void el.offsetHeight;
+      void el.getBoundingClientRect();
     }
   });
   await new Promise<void>((resolve) => {
     window.requestAnimationFrame(() => window.requestAnimationFrame(() => resolve()));
   });
+}
+
+function detectZeroClientHeightText(slideElement: HTMLElement): boolean {
+  const nodes = [slideElement, ...Array.from(slideElement.querySelectorAll("*"))].filter(
+    (el): el is HTMLElement => el instanceof HTMLElement
+  );
+  for (const node of nodes) {
+    if (!node.textContent?.trim()) continue;
+    const style = window.getComputedStyle(node);
+    if (style.display === "none" || style.visibility === "hidden" || style.contentVisibility === "hidden") continue;
+    if (node.scrollHeight > 0 && node.clientHeight === 0) return true;
+  }
+  return false;
 }
 
 async function captureSlideSnapshot(
@@ -396,13 +411,17 @@ async function buildPptSnapshotPages(
   const raw = await file.arrayBuffer();
   const host = document.createElement("div");
   host.style.position = "absolute";
-  host.style.left = "-99999px";
+  host.style.left = "0";
   host.style.top = "0";
   host.style.overflow = "visible";
-  host.style.opacity = "1";
+  host.style.opacity = "0.01";
   host.style.pointerEvents = "none";
   host.style.background = "#fff";
   host.style.zIndex = "-1";
+  host.style.transform = "scale(0.01)";
+  host.style.transformOrigin = "top left";
+  host.style.contain = "none";
+  host.style.contentVisibility = "visible";
   document.body.appendChild(host);
 
   try {
@@ -449,12 +468,26 @@ async function buildPptSnapshotPages(
       diagnostics && (diagnostics.slidesRenderedCount += 1);
       if (i === 0) firstSlideElementByRef.current = slideNode;
 
-      const boundary = computeVerticalCaptureBoundary(slideNode, slideSize.height);
       const textOverflowDetected = collectAndPatchTextOverflow(slideNode, i + 1, diagnostics);
       if (textOverflowDetected) {
         diagnostics?.failureReasons.push(`第 ${i + 1} 页启用 text-safe render path`);
       }
       await waitForTextLayoutReady(slideNode);
+      const zeroClientHeightDetected = detectZeroClientHeightText(slideNode);
+      if (zeroClientHeightDetected) {
+        diagnostics && (diagnostics.zeroClientHeightDetected = true);
+        diagnostics?.failureReasons.push(`第 ${i + 1} 页检测到 clientHeight=0，触发 layout recovery`);
+        // layout recovery: 重新挂载当前页并再次等待字体/回流完成。
+        previewer.renderSingleSlide(i);
+        slideNode = resolveSlideRoot(previewer as { wrapper?: HTMLElement }, host);
+        if (!slideNode) {
+          throw new Error(`第 ${i + 1} 页 layout recovery 后渲染节点丢失`);
+        }
+        await waitForStableSlide(slideNode);
+        await waitForTextLayoutReady(slideNode);
+        diagnostics && (diagnostics.layoutRecovered = true);
+      }
+      const boundary = computeVerticalCaptureBoundary(slideNode, slideSize.height);
       if (debugMode) {
         debugLog(debugMode, `slide ${i + 1} vertical boundary`, boundary);
       }

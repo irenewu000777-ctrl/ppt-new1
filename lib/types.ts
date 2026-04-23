@@ -49,6 +49,8 @@ export interface PipelineDiagnostics {
   overCaptureDetected?: boolean;
   bboxExtensionAmount?: number;
   textOverflowDetected?: boolean;
+  layoutRecovered?: boolean;
+  zeroClientHeightDetected?: boolean;
   textBoxDiagnostics?: Array<{
     slideIndex: number;
     nodeTag: string;
