@@ -156,6 +156,7 @@ export default function HomePage() {
             <div>Text Overflow Detected: {pipeline.diagnostics.textOverflowDetected ? "Yes" : "No"}</div>
             <div>Zero Client Height Detected: {pipeline.diagnostics.zeroClientHeightDetected ? "Yes" : "No"}</div>
             <div>Layout Recovered: {pipeline.diagnostics.layoutRecovered ? "Yes" : "No"}</div>
+            <div>Capture Mode: {pipeline.diagnostics.captureMode ?? "-"}</div>
             <div>
               Text Box Metrics:{" "}
               {(pipeline.diagnostics.textBoxDiagnostics ?? [])

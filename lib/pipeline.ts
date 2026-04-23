@@ -353,6 +353,8 @@ async function captureSlideSnapshot(
   targetHeight: number,
   renderScale: number
 ): Promise<HTMLCanvasElement> {
+  slideNode.scrollTop = 0;
+  slideNode.scrollLeft = 0;
   return html2canvas(slideNode, {
     backgroundColor: "#ffffff",
     scale: renderScale,
@@ -364,7 +366,7 @@ async function captureSlideSnapshot(
     windowWidth: targetWidth,
     windowHeight: targetHeight,
     x: 0,
-    y: -Math.ceil((targetHeight - slideNode.clientHeight) * 0.5),
+    y: 0,
     scrollX: 0,
     scrollY: 0
   });
@@ -381,9 +383,15 @@ async function renderSlideToCanonicalCanvas(
   boundary: VerticalCaptureBoundary,
   renderScale: number
 ): Promise<{ canvas: HTMLCanvasElement; renderer: "primary" | "fallback" }> {
-  const targetWidth = Math.ceil(slideSize.width);
-  const targetHeight = Math.ceil(boundary.finalCaptureHeight);
-  // 主路径：页面尺寸驱动（固定 canonical canvas），纵向边界使用完整内容包围盒 + bleed。
+  slideElement.scrollTop = 0;
+  slideElement.scrollLeft = 0;
+  const targetWidth = Math.ceil(
+    Math.max(slideSize.width, slideElement.scrollWidth, slideElement.offsetWidth, slideElement.clientWidth)
+  );
+  const targetHeight = Math.ceil(
+    Math.max(boundary.finalCaptureHeight, slideElement.scrollHeight, slideElement.offsetHeight, slideElement.clientHeight)
+  );
+  // 主路径：full scroll content capture，禁止仅按 visible viewport 截取。
   let canvas = await toCanvas(slideElement, {
     backgroundColor: "#ffffff",
     pixelRatio: 1,
@@ -394,7 +402,8 @@ async function renderSlideToCanonicalCanvas(
     style: {
       width: `${targetWidth}px`,
       height: `${targetHeight}px`,
-      transform: "none"
+      transform: "none",
+      overflow: "visible"
     },
     cacheBust: true
   });
@@ -606,6 +615,7 @@ async function buildPptSnapshotPages(
       diagnostics.uniqueCanvasSizes = Array.from(observedSizes.values());
       diagnostics.aspectRatios = Array.from(observedRatios.values());
       diagnostics.pagesNormalizedCount = layoutValidatedPagesCount;
+      diagnostics.captureMode = "fullScrollCapture";
       diagnostics.canonicalSize = canonicalCanvasSize ?? undefined;
       diagnostics.consistencyStatus = diagnostics.uniqueCanvasSizes.length <= 1 && (diagnostics.aspectRatios?.length ?? 0) <= 1 ? "pass" : "warning";
       diagnostics.layoutRecovered = diagnostics.layoutRecovered || layoutValidatedPagesCount > 0;
