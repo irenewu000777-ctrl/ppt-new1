@@ -55,6 +55,7 @@ export interface PipelineDiagnostics {
   layoutRecovered?: boolean;
   zeroClientHeightDetected?: boolean;
   captureMode?: "fullScrollCapture" | "viewportCapture";
+  visualRenderMode?: boolean;
   textBoxDiagnostics?: Array<{
     slideIndex: number;
     nodeTag: string;

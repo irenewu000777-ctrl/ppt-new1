@@ -376,23 +376,56 @@ function resolveSlideRoot(previewer: { wrapper?: HTMLElement }, host: HTMLElemen
   return previewer.wrapper?.firstElementChild as HTMLElement | null ?? (host.firstElementChild as HTMLElement | null);
 }
 
+function applyVisualOnlyRenderFilter(slideElement: HTMLElement): () => void {
+  const slideRect = slideElement.getBoundingClientRect();
+  const mutated: Array<{ node: HTMLElement; visibility: string; display: string }> = [];
+  const nodes = Array.from(slideElement.querySelectorAll("*")).filter((el): el is HTMLElement => el instanceof HTMLElement);
+  for (const node of nodes) {
+    const style = window.getComputedStyle(node);
+    if (style.display === "none" || style.visibility === "hidden" || Number(style.opacity) === 0) {
+      continue;
+    }
+    const isPlaceholderLike =
+      !node.children.length &&
+      !node.textContent?.trim() &&
+      !node.querySelector("img,svg,canvas,video,iframe") &&
+      ["div", "span", "p"].includes(node.tagName.toLowerCase());
+    const rect = node.getBoundingClientRect();
+    const intersects =
+      rect.right > slideRect.left &&
+      rect.left < slideRect.right &&
+      rect.bottom > slideRect.top &&
+      rect.top < slideRect.bottom;
+
+    if (isPlaceholderLike || !intersects) {
+      mutated.push({ node, visibility: node.style.visibility, display: node.style.display });
+      node.style.visibility = "hidden";
+    }
+  }
+  const rootVisibility = slideElement.style.overflow;
+  slideElement.style.overflow = "hidden";
+  return () => {
+    slideElement.style.overflow = rootVisibility;
+    for (const item of mutated) {
+      item.node.style.visibility = item.visibility;
+      item.node.style.display = item.display;
+    }
+  };
+}
+
 async function renderSlideToCanonicalCanvas(
   toCanvas: (node: HTMLElement, options: Record<string, unknown>) => Promise<HTMLCanvasElement>,
   slideElement: HTMLElement,
   slideSize: { width: number; height: number },
-  boundary: VerticalCaptureBoundary,
   renderScale: number
 ): Promise<{ canvas: HTMLCanvasElement; renderer: "primary" | "fallback" }> {
   slideElement.scrollTop = 0;
   slideElement.scrollLeft = 0;
-  const targetWidth = Math.ceil(
-    Math.max(slideSize.width, slideElement.scrollWidth, slideElement.offsetWidth, slideElement.clientWidth)
-  );
-  const targetHeight = Math.ceil(
-    Math.max(boundary.finalCaptureHeight, slideElement.scrollHeight, slideElement.offsetHeight, slideElement.clientHeight)
-  );
-  // 主路径：full scroll content capture，禁止仅按 visible viewport 截取。
-  let canvas = await toCanvas(slideElement, {
+  const targetWidth = Math.ceil(slideSize.width);
+  const targetHeight = Math.ceil(slideSize.height);
+  // visual layer 是唯一 capture truth，严格限定在 slide frame。
+  const restoreVisualFilter = applyVisualOnlyRenderFilter(slideElement);
+  const canvas = await toCanvas(slideElement, {
     backgroundColor: "#ffffff",
     pixelRatio: 1,
     width: targetWidth,
@@ -403,23 +436,15 @@ async function renderSlideToCanonicalCanvas(
       width: `${targetWidth}px`,
       height: `${targetHeight}px`,
       transform: "none",
-      overflow: "visible"
+      overflow: "hidden"
     },
     cacheBust: true
   });
+  restoreVisualFilter();
   const expectedRatio = targetWidth / targetHeight;
   const ratioOk = ratioDiff(canvas.width / canvas.height, expectedRatio) <= 0.01;
   if (ratioOk && !detectBlankCanvas(canvas)) return { canvas, renderer: "primary" };
-
-  // 备用路径：html2canvas 固定 page size（仅 fallback 使用）。
-  canvas = await captureSlideSnapshot(
-    (await import("html2canvas")).default,
-    slideElement,
-    targetWidth,
-    targetHeight,
-    renderScale
-  );
-  return { canvas, renderer: "fallback" };
+  throw new Error("VISUAL RENDER FAILURE: primary visual layer capture failed");
 }
 
 async function buildPptSnapshotPages(
@@ -545,6 +570,7 @@ async function buildPptSnapshotPages(
         diagnostics && (diagnostics.layoutRecovered = true);
       }
       layoutValidatedPagesCount += 1;
+      // 仅保留 layout 指标用于 debug，不参与 visual capture 决策。
       const boundary = computeVerticalCaptureBoundary(slideNode, slideSize.height);
       if (debugMode) {
         debugLog(debugMode, `slide ${i + 1} vertical boundary`, boundary);
@@ -558,20 +584,19 @@ async function buildPptSnapshotPages(
         bleedAdded: boundary.topBleed + boundary.bottomBleed,
         contentExceedsFrame: boundary.contentExceedsFrame
       });
-      diagnostics && (diagnostics.overCaptureDetected = Boolean(diagnostics.overCaptureDetected || boundary.overCaptureDetected));
+      diagnostics && (diagnostics.overCaptureDetected = Boolean(diagnostics.overCaptureDetected || boundary.contentExceedsFrame));
       diagnostics && (diagnostics.bboxExtensionAmount = Math.max(diagnostics.bboxExtensionAmount ?? 0, boundary.extensionAmount));
       diagnostics && (diagnostics.textOverflowDetected = Boolean(diagnostics.textOverflowDetected || textOverflowDetected));
 
-      slideNode.style.height = `${Math.ceil(boundary.finalCaptureHeight)}px`;
-      slideNode.style.paddingTop = `${boundary.topBleed}px`;
-      slideNode.style.paddingBottom = `${boundary.bottomBleed}px`;
+      slideNode.style.height = `${Math.ceil(slideSize.height)}px`;
+      slideNode.style.paddingTop = "0";
+      slideNode.style.paddingBottom = "0";
       slideNode.style.boxSizing = "border-box";
-      slideNode.style.overflow = "visible";
+      slideNode.style.overflow = "hidden";
       const { canvas: rawCanvas, renderer } = await renderSlideToCanonicalCanvas(
         toCanvas,
         slideNode,
         slideSize,
-        boundary,
         renderScale
       );
       if (renderer === "fallback") {
@@ -616,6 +641,7 @@ async function buildPptSnapshotPages(
       diagnostics.aspectRatios = Array.from(observedRatios.values());
       diagnostics.pagesNormalizedCount = layoutValidatedPagesCount;
       diagnostics.captureMode = "fullScrollCapture";
+      diagnostics.visualRenderMode = true;
       diagnostics.canonicalSize = canonicalCanvasSize ?? undefined;
       diagnostics.consistencyStatus = diagnostics.uniqueCanvasSizes.length <= 1 && (diagnostics.aspectRatios?.length ?? 0) <= 1 ? "pass" : "warning";
       diagnostics.layoutRecovered = diagnostics.layoutRecovered || layoutValidatedPagesCount > 0;
@@ -642,7 +668,6 @@ async function buildPptSnapshotPages(
           toCanvas,
           firstSlideElementByRef.current,
           slideSize,
-          computeVerticalCaptureBoundary(firstSlideElementByRef.current, slideSize.height),
           renderScale
         );
         const candidate = normalizeCanvasToCanonical(c.canvas, canonicalCanvasSize.width, canonicalCanvasSize.height);
