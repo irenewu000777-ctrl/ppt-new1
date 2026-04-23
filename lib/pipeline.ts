@@ -425,18 +425,27 @@ async function buildPptSnapshotPages(
   document.body.appendChild(host);
 
   try {
+    // Step 1: PPTX parse
     const previewer = init(host, { mode: "slide" });
     const deck = await previewer.load(raw);
+    const rawSlidesCount = Array.isArray((deck as { slides?: unknown[] }).slides)
+      ? (deck as { slides?: unknown[] }).slides!.length
+      : 0;
     const slideSize = resolveSlideSize(deck);
     host.style.width = `${slideSize.width}px`;
     host.style.height = `${slideSize.height}px`;
     host.style.padding = "0";
     host.style.boxSizing = "border-box";
-    const total = previewer.slideCount || deck?.slides?.length || 0;
-    if (diagnostics) diagnostics.slidesParsedCount = total;
-    debugLog(debugMode, `parsed slides: ${total}`, slideSize);
+    // Step 2: slide model build
+    const total = previewer.slideCount || rawSlidesCount || 0;
+    if (diagnostics) {
+      diagnostics.rawSlidesCount = rawSlidesCount;
+      diagnostics.parsedSlidesCount = total;
+      diagnostics.slidesParsedCount = total;
+    }
+    debugLog(debugMode, `slide parse/model stats raw=${rawSlidesCount} parsed=${total}`, slideSize);
     if (!total) {
-      throw new Error("未解析到任何幻灯片");
+      throw new Error("Slide pipeline failed: no pages generated");
     }
 
     const pages: Page[] = [];
@@ -447,6 +456,7 @@ async function buildPptSnapshotPages(
     let pagesNormalized = 0;
     let canonicalCanvasSize: { width: number; height: number } | null = null;
     const firstSlideElementByRef: { current: HTMLElement | null } = { current: null };
+    let renderedSlideNodesCount = 0;
     for (let i = 0; i < total; i += 1) {
       onProgress?.({
         message: "正在生成幻灯片预览...",
@@ -463,6 +473,7 @@ async function buildPptSnapshotPages(
         diagnostics?.failureReasons.push(`第 ${i + 1} 页未找到可渲染节点`);
         throw new Error(`第 ${i + 1} 页渲染失败`);
       }
+      renderedSlideNodesCount += 1;
 
       await waitForStableSlide(slideNode);
       diagnostics && (diagnostics.slidesRenderedCount += 1);
@@ -548,6 +559,12 @@ async function buildPptSnapshotPages(
       observedSizes.add(canvasSizeKey(canvas.width, canvas.height));
       observedRatios.add(roundRatio(canvas.width, canvas.height));
       diagnostics && (diagnostics.snapshotsGeneratedCount += 1);
+    }
+    if (diagnostics) {
+      diagnostics.renderedSlideNodesCount = renderedSlideNodesCount;
+    }
+    if (!pages.length) {
+      throw new Error("Slide pipeline failed: no pages generated");
     }
     if (diagnostics) {
       diagnostics.uniqueCanvasSizes = Array.from(observedSizes.values());
@@ -686,6 +703,9 @@ export async function buildPagePipeline(
       debugMode
     );
     diagnostics.rendererUsed = rendererUsed;
+    if (!pages.length) {
+      throw new Error("Slide pipeline failed: no pages generated");
+    }
     debugLog(debugMode, "pipeline diagnostics", diagnostics);
     return {
       sourceName: file.name,
@@ -696,6 +716,9 @@ export async function buildPagePipeline(
   } catch (error) {
     const reason = error instanceof Error ? error.message : "未知错误";
     debugLog(debugMode, "pipeline failed", reason);
+    if (reason.includes("Slide pipeline failed: no pages generated")) {
+      throw new Error("Slide pipeline failed: no pages generated");
+    }
     if (debugMode) {
       throw new Error(`当前课件较复杂，建议先导出为 PDF 再上传。调试信息：${reason}`);
     }

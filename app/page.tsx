@@ -136,6 +136,9 @@ export default function HomePage() {
           <div className="mb-2 font-semibold">Consistency Check</div>
           <div className="grid grid-cols-1 gap-1 md:grid-cols-2">
             <div>Status: {pipeline.diagnostics.consistencyStatus === "pass" ? "Pass" : "Warning"}</div>
+            <div>Raw Slides Count: {pipeline.diagnostics.rawSlidesCount ?? 0}</div>
+            <div>Parsed Slides Count: {pipeline.diagnostics.parsedSlidesCount ?? pipeline.diagnostics.slidesParsedCount}</div>
+            <div>Rendered Slide Nodes Count: {pipeline.diagnostics.renderedSlideNodesCount ?? 0}</div>
             <div>Slide Count: {pipeline.diagnostics.slidesParsedCount}</div>
             <div>
               Canonical Size:{" "}

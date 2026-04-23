@@ -26,8 +26,11 @@ export interface PipelineProgress {
 
 export interface PipelineDiagnostics {
   sourceType: "pdf" | "ppt" | "pptx";
+  rawSlidesCount?: number;
   slidesParsedCount: number;
+  parsedSlidesCount?: number;
   slidesRenderedCount: number;
+  renderedSlideNodesCount?: number;
   snapshotsGeneratedCount: number;
   blankSnapshotsDetected: number;
   uniqueCanvasSizes?: string[];
