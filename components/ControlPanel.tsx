@@ -8,18 +8,22 @@ interface ControlPanelProps {
   settings: LayoutSettings;
   loading: boolean;
   sourceName: string | null;
+  statusText?: string | null;
   onFileChange: (file: File | null) => void;
   onSettingsChange: (next: LayoutSettings) => void;
   onGenerate: () => void;
+  onRetry?: () => void;
 }
 
 export function ControlPanel({
   settings,
   loading,
   sourceName,
+  statusText,
   onFileChange,
   onSettingsChange,
-  onGenerate
+  onGenerate,
+  onRetry
 }: ControlPanelProps) {
   const handleUpload = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0] ?? null;
@@ -31,15 +35,16 @@ export function ControlPanel({
       <h2 className="mb-4 text-lg font-semibold">排版控制台</h2>
       <div className="space-y-4 text-sm">
         <label className="block">
-          <span className="mb-1 block font-medium">上传文件（仅 PDF）</span>
+          <span className="mb-1 block font-medium">上传文件（PDF / PPT / PPTX）</span>
           <input
             type="file"
-            accept=".pdf,application/pdf"
+            accept=".pdf,.ppt,.pptx,application/pdf,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation"
             onChange={handleUpload}
             className="block w-full rounded border border-slate-300 px-2 py-2"
           />
           <p className="mt-1 text-slate-500">最大文件限额：{MAX_PDF_FILE_SIZE_MB}MB</p>
           {sourceName ? <p className="mt-1 text-slate-500">当前文件：{sourceName}</p> : null}
+          {statusText ? <p className="mt-1 text-indigo-600">{statusText}</p> : null}
         </label>
 
         <div className="grid grid-cols-2 gap-3">
@@ -135,6 +140,15 @@ export function ControlPanel({
         >
           {loading ? "处理中..." : "Generate Study PDF"}
         </button>
+        {onRetry ? (
+          <button
+            onClick={onRetry}
+            disabled={loading}
+            className="w-full rounded border border-slate-300 px-4 py-2 font-medium text-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            Retry
+          </button>
+        ) : null}
       </div>
     </aside>
   );

@@ -38,22 +38,41 @@ export default function HomePage() {
   const [pipeline, setPipeline] = useState<PagePipelineResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [statusText, setStatusText] = useState<string | null>(null);
+  const [retryFile, setRetryFile] = useState<File | null>(null);
+  const [canRetry, setCanRetry] = useState(false);
   const pages = useMemo(() => pipeline?.pages ?? [], [pipeline]);
 
   const handleFileChange = async (file: File | null) => {
     if (!file) return;
+    const lower = file.name.toLowerCase();
+    const isPpt = lower.endsWith(".ppt") || lower.endsWith(".pptx");
     setLoading(true);
+    setRetryFile(file);
+    setCanRetry(false);
     setMessage(null);
+    setStatusText(isPpt ? "正在生成幻灯片预览..." : "正在生成页面预览...");
     try {
-      const data = await buildPagePipeline(file);
+      const data = await buildPagePipeline(file, {
+        snapshotScale: 2,
+        onProgress: (progress) => {
+          if (progress.total && progress.current) {
+            setStatusText(`${progress.message}（${progress.current}/${progress.total}）`);
+            return;
+          }
+          setStatusText(progress.message);
+        }
+      });
       setPipeline(data);
       setMessage(`已加载 ${data.pages.length} 页，进入实时拼版模式。`);
     } catch (error) {
       const text = error instanceof Error ? error.message : "文件处理失败";
       setMessage(text);
       setPipeline(null);
+      setCanRetry(text.includes("建议先导出为 PDF 再上传"));
     } finally {
       setLoading(false);
+      setStatusText(null);
     }
   };
 
@@ -80,7 +99,7 @@ export default function HomePage() {
     <main className="min-h-screen p-4 md:p-6">
       <header className="mb-4">
         <h1 className="text-2xl font-bold text-slate-900">Study Imposition Engine</h1>
-        <p className="text-sm text-slate-600">仅做页面拼版，不修改单页内容。当前版本仅支持 PDF 上传。</p>
+        <p className="text-sm text-slate-600">仅做页面拼版，不修改单页内容。支持 PDF 与 PPT/PPTX 上传。</p>
       </header>
 
       <div className="flex flex-col gap-4 lg:flex-row">
@@ -88,9 +107,11 @@ export default function HomePage() {
           settings={settings}
           loading={loading}
           sourceName={pipeline?.sourceName ?? null}
+          statusText={statusText}
           onFileChange={handleFileChange}
           onSettingsChange={setSettings}
           onGenerate={handleGenerate}
+          onRetry={canRetry && retryFile ? () => handleFileChange(retryFile) : undefined}
         />
         <PreviewPane pages={pages} settings={settings} />
       </div>

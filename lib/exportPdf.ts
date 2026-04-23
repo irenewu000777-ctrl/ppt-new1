@@ -6,7 +6,8 @@ import type { LayoutSettings, PagePipelineResult } from "./types";
 export async function exportImposedPdf(data: PagePipelineResult, settings: LayoutSettings): Promise<Uint8Array> {
   try {
     const outDoc = await PDFDocument.create();
-    const sourceDoc = await PDFDocument.load(Uint8Array.from(data.sourcePdfBytes));
+    const sourceDoc = data.sourcePdfBytes ? await PDFDocument.load(Uint8Array.from(data.sourcePdfBytes)) : null;
+    const embeddedImageCache = new Map<string, Awaited<ReturnType<typeof outDoc.embedPng>>>();
     const layouts = buildSheetLayouts(data.pages, settings);
     const paper = getPaperPt(settings);
     const outerMarginPt = mmToPt(8);
@@ -27,15 +28,45 @@ export async function exportImposedPdf(data: PagePipelineResult, settings: Layou
         const yTop = outerMarginPt + row * (cellHeight + gapPt);
         const y = paper.height - yTop - cellHeight;
 
-        const sourcePage = sourceDoc.getPage(item.page.pdfPageIndex);
-        const embeddedPage = await outDoc.embedPage(sourcePage);
-        const scale = Math.min(cellWidth / embeddedPage.width, cellHeight / embeddedPage.height);
-        const drawWidth = embeddedPage.width * scale;
-        const drawHeight = embeddedPage.height * scale;
+        const canUseSourcePdf =
+          sourceDoc &&
+          typeof item.page.pdfPageIndex === "number" &&
+          item.page.pdfPageIndex >= 0 &&
+          item.page.pdfPageIndex < sourceDoc.getPageCount();
+
+        if (canUseSourcePdf) {
+          const sourcePage = sourceDoc.getPage(item.page.pdfPageIndex!);
+          const embeddedPage = await outDoc.embedPage(sourcePage);
+          const scale = Math.min(cellWidth / embeddedPage.width, cellHeight / embeddedPage.height);
+          const drawWidth = embeddedPage.width * scale;
+          const drawHeight = embeddedPage.height * scale;
+          const drawX = x + (cellWidth - drawWidth) / 2;
+          const drawY = y + (cellHeight - drawHeight) / 2;
+
+          page.drawPage(embeddedPage, {
+            x: drawX,
+            y: drawY,
+            width: drawWidth,
+            height: drawHeight
+          });
+          continue;
+        }
+
+        let embeddedImage = embeddedImageCache.get(item.page.image);
+        if (!embeddedImage) {
+          const imageBytes = await fetch(item.page.image).then((res) => res.arrayBuffer());
+          embeddedImage = await outDoc.embedPng(imageBytes);
+          embeddedImageCache.set(item.page.image, embeddedImage);
+        }
+        const imageWidth = item.page.width || embeddedImage.width;
+        const imageHeight = item.page.height || embeddedImage.height;
+        const scale = Math.min(cellWidth / imageWidth, cellHeight / imageHeight);
+        const drawWidth = imageWidth * scale;
+        const drawHeight = imageHeight * scale;
         const drawX = x + (cellWidth - drawWidth) / 2;
         const drawY = y + (cellHeight - drawHeight) / 2;
 
-        page.drawPage(embeddedPage, {
+        page.drawImage(embeddedImage, {
           x: drawX,
           y: drawY,
           width: drawWidth,

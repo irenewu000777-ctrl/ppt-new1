@@ -5,13 +5,22 @@ export type PaperSizeKey = "A4" | "A5" | "Letter" | "B5";
 export interface Page {
   id: string;
   image: string;
-  pdfPageIndex: number;
+  width: number;
+  height: number;
+  pdfPageIndex?: number;
 }
 
 export interface PagePipelineResult {
   sourceName: string;
-  sourcePdfBytes: Uint8Array;
+  sourceType: "pdf" | "ppt" | "pptx";
+  sourcePdfBytes?: Uint8Array;
   pages: Page[];
+}
+
+export interface PipelineProgress {
+  message: string;
+  current?: number;
+  total?: number;
 }
 
 export interface LayoutSettings {

@@ -10,9 +10,11 @@
   },
   "dependencies": {
     "framer-motion": "^11.3.31",
+    "html2canvas": "^1.4.1",
     "next": "^14.2.5",
     "pdf-lib": "^1.17.1",
     "pdfjs-dist": "^4.5.136",
+    "pptx-preview": "^1.0.7",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },
