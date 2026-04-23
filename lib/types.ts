@@ -49,6 +49,12 @@ export interface PipelineDiagnostics {
   overCaptureDetected?: boolean;
   bboxExtensionAmount?: number;
   textOverflowDetected?: boolean;
+  textBoxDiagnostics?: Array<{
+    slideIndex: number;
+    nodeTag: string;
+    scrollHeight: number;
+    clientHeight: number;
+  }>;
   exportImageCount?: number;
   rendererUsed?: "primary" | "fallback";
   failureReasons: string[];

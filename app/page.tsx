@@ -152,6 +152,13 @@ export default function HomePage() {
             <div>BBox Extension: {pipeline.diagnostics.bboxExtensionAmount ?? 0}</div>
             <div>Text Overflow Detected: {pipeline.diagnostics.textOverflowDetected ? "Yes" : "No"}</div>
             <div>
+              Text Box Metrics:{" "}
+              {(pipeline.diagnostics.textBoxDiagnostics ?? [])
+                .slice(0, 3)
+                .map((item) => `#${item.slideIndex} ${item.nodeTag} s=${item.scrollHeight} c=${item.clientHeight}`)
+                .join(" | ") || "-"}
+            </div>
+            <div>
               Bottom Capture:{" "}
               {(pipeline.diagnostics.bottomClipChecks ?? [])
                 .slice(0, 3)

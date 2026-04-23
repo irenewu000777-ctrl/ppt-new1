@@ -245,11 +245,16 @@ function computeVerticalCaptureBoundary(slideElement: HTMLElement, slideHeight: 
   };
 }
 
-function patchTextLayoutForSnapshot(slideElement: HTMLElement): boolean {
+function collectAndPatchTextOverflow(
+  slideElement: HTMLElement,
+  slideIndex: number,
+  diagnostics?: PipelineDiagnostics
+): boolean {
   let overflowDetected = false;
   const nodes = [slideElement, ...Array.from(slideElement.querySelectorAll("*"))].filter(
     (el): el is HTMLElement => el instanceof HTMLElement
   );
+  diagnostics && (diagnostics.textBoxDiagnostics ??= []);
   for (const node of nodes) {
     if (!node.textContent?.trim()) continue;
     const style = window.getComputedStyle(node);
@@ -258,21 +263,58 @@ function patchTextLayoutForSnapshot(slideElement: HTMLElement): boolean {
       style.display.includes("inline-block") ||
       style.display.includes("flex");
     if (!isTextContainer) continue;
+    const scrollHeight = Math.ceil(node.scrollHeight);
+    const clientHeight = Math.ceil(node.clientHeight);
     const clipped =
-      node.scrollHeight - node.clientHeight > 2 &&
+      scrollHeight - clientHeight > 2 &&
       (style.overflowY === "hidden" || style.overflowY === "clip" || style.overflow === "hidden");
     if (!clipped) continue;
     overflowDetected = true;
+    diagnostics?.textBoxDiagnostics?.push({
+      slideIndex,
+      nodeTag: node.tagName.toLowerCase(),
+      scrollHeight,
+      clientHeight
+    });
+    // text-safe path: 解除裁切并允许自动扩展高度与换行
     node.style.overflowY = "visible";
     node.style.overflow = "visible";
     node.style.height = "auto";
     node.style.maxHeight = "none";
+    node.style.minHeight = `${scrollHeight}px`;
+    node.style.webkitLineClamp = "unset";
+    node.style.setProperty("line-clamp", "none");
+    node.style.setProperty("-webkit-line-clamp", "unset");
     if (style.whiteSpace === "nowrap") {
       node.style.whiteSpace = "normal";
     }
+    node.style.textOverflow = "clip";
+    node.style.display = style.display.includes("inline") ? "inline-block" : style.display;
     node.style.wordBreak = "break-word";
+    node.style.overflowWrap = "anywhere";
   }
   return overflowDetected;
+}
+
+async function waitForTextLayoutReady(slideElement: HTMLElement): Promise<void> {
+  const fonts = (document as Document & { fonts?: { ready?: Promise<unknown> } }).fonts;
+  if (fonts?.ready) {
+    try {
+      await fonts.ready;
+    } catch {
+      // ignore font readiness failures, continue with reflow.
+    }
+  }
+  // 强制 reflow，确保文本容器高度在截图前稳定。
+  void slideElement.offsetHeight;
+  Array.from(slideElement.querySelectorAll("*")).forEach((el) => {
+    if (el instanceof HTMLElement) {
+      void el.offsetHeight;
+    }
+  });
+  await new Promise<void>((resolve) => {
+    window.requestAnimationFrame(() => window.requestAnimationFrame(() => resolve()));
+  });
 }
 
 async function captureSlideSnapshot(
@@ -408,7 +450,11 @@ async function buildPptSnapshotPages(
       if (i === 0) firstSlideElementByRef.current = slideNode;
 
       const boundary = computeVerticalCaptureBoundary(slideNode, slideSize.height);
-      const textOverflowDetected = patchTextLayoutForSnapshot(slideNode);
+      const textOverflowDetected = collectAndPatchTextOverflow(slideNode, i + 1, diagnostics);
+      if (textOverflowDetected) {
+        diagnostics?.failureReasons.push(`第 ${i + 1} 页启用 text-safe render path`);
+      }
+      await waitForTextLayoutReady(slideNode);
       if (debugMode) {
         debugLog(debugMode, `slide ${i + 1} vertical boundary`, boundary);
       }
