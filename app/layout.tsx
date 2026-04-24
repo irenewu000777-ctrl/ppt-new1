@@ -5,8 +5,11 @@ import { Inter } from "next/font/google";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "Study Imposition",
-  description: "PDF/PPT/PPTX printable layout engine"
+  title: "PrintFlow",
+  description: "PDF/PPT/PPTX printable layout engine",
+  icons: {
+    icon: "/icon"
+  }
 };
 
 export default function RootLayout({

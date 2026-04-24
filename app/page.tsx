@@ -184,8 +184,19 @@ export default function HomePage() {
             <h1 className="text-xl font-extrabold tracking-tight text-slate-900">控制台 Console</h1>
             <p className="text-xs text-slate-400 mt-0.5">多页 PDF 灵活合并打印，节省纸张并优化阅读体验。</p>
           </div>
-          <div className="text-[10px] text-slate-400 bg-white px-2 py-1 rounded-md border border-gray-100 shadow-sm">
-            PDF / PPT / PPTX (MAX 40MB)
+          <div className="text-[10px] text-slate-400 bg-white px-2 py-1 rounded-md border border-gray-100 shadow-sm flex items-center gap-1.5">
+            <span>PDF / PPT / PPTX (MAX 40MB)</span>
+            <span className="relative group inline-flex">
+              <span
+                title="若转换出现缺失，请将文件转换为pdf重试"
+                className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-slate-300 text-[10px] font-bold text-slate-500 cursor-help"
+              >
+                ?
+              </span>
+              <span className="pointer-events-none absolute z-20 right-0 top-[calc(100%+6px)] w-56 whitespace-normal text-left rounded-md bg-slate-800 px-2 py-1 text-[10px] leading-snug font-medium text-white opacity-0 shadow-md transition-opacity group-hover:opacity-100">
+                若转换出现缺失，请将文件转换为pdf重试
+              </span>
+            </span>
           </div>
         </div>
 
