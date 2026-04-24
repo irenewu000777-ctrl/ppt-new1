@@ -1,4 +1,4 @@
-# Study Imposition Engine
+# PrintFlow 印流
 
 一个可上线的 Next.js + TypeScript Web 应用，用于学生课件打印排版（imposition）。
 
